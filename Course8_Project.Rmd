@@ -1,0 +1,300 @@
+---
+title: "Course8_Practical_Machine_Learning"
+author: "assignment"
+date: "8/1/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1.Project Overview
+
+One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, our goal is to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants to predict the manner in which they did the exercise. This is the "classe" variable in the training set. In a word, we are conducting an supervised learning on this project to predict the testing sample's class.
+
+#### Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, the goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. Six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E).Class A corresponds to the specified execution of the exercise, while the other 4 classes correspond to common mistakes.
+
+Read more: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har#literature#ixzz4obemuLUI
+
+Read more: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har#literature#ixzz4obeTZ7XH
+
+#### Data
+
+The training data for this project are available here:
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har. 
+
+## 2.Executive Summary
+
+### 2.1 Citation
+[Thanks sharing from]Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
+
+Read more: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har#ixzz4obLzpueW
+
+#### 2.2 Execution Steps
+According to the project instruction, the project execution should attempt to descripe:
+
+-How you built your mode
+-how you sued cross validation
+-what you think the expected out of sample error is 
+-why you made the choices you did
+
+Accordingly, in the project, we conducted the above processes by exploratory data analysis, data processing, fitting models with different agrithms and testing with training data and development data. And finaly we had the best practise, which applied to the final model for the testing data.
+
+## 3.Exploratory Data Analysis
+
+### 3.1 Loading essential packages and set caching in Knitr
+```{r echo = TRUE}
+library(AppliedPredictiveModeling)
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+library(ggplot2)
+library(knitr)
+library(rattle)
+
+knitr::opts_chunk$set(cache = TRUE)
+```
+
+### 3.2 Getting and Loading dataset
+First of all, we look at the training dataset. 
+
+```{r echo =TRUE}
+#set.seed for reproducible 
+set.seed(13425)
+#Download and input dataset, use na.strings to covert empty values as NA
+training <- read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", header = TRUE, na.strings = c("NA","#DIV/0!",""))
+testing <- read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", header = TRUE, na.strings = c("NA","#DIV/0!",""))
+#Check data class to ensure it is data.frame
+class(training)
+#Check data by str() and summary()
+#str(training)
+#str(testing)
+#summary(training)
+
+```
+
+### 3.3 Clearning the dataset
+Remove all rows with 'NA' values in both training and testing dataset.
+``` {r echo = TRUE}
+training <- training[, colSums(is.na(training))== 0]
+testing <- testing[, colSums(is.na(testing))== 0]
+
+dim(training)
+dim(testing)
+
+#str(training)
+names(training)
+#names(testing)
+```
+Split the training set into two sets: training, testing. Note: Both the traing and testing set are under the original training dataset.
+```{r echo=TRUE}
+cutPonit <- createDataPartition(training$classe, p =0.66, list = FALSE)
+modTraining <- training[cutPonit, ]
+modTesting <- training[-cutPonit, ]
+dim(modTraining)
+#dim(modTesting)
+
+```
+Since there are many NA in the dataset, which considered to be no use for our mode, the next step we will remove such variables.
+```{r echo = TRUE}
+#Check for zero variance
+czv1 <- nearZeroVar(modTraining, saveMetrics = TRUE)
+#czv
+modTraining <- modTraining[, czv1$nzv == FALSE]
+
+czv2 <- nearZeroVar(modTesting, saveMetrics = TRUE)
+modTesting <- modTesting[, czv2$nzv == FALSE]
+
+colnames(modTraining)
+```
+Remove the first 6 columns in the training set which appear to be less helpful for the modeling.
+
+```{r echo = TRUE}
+modTraining <- modTraining[, -c(1:6)]
+modTesting <- modTesting[, -c(1:6)]
+
+col1 <- colnames(modTraining)
+col2 <- colnames(modTraining[, -53])
+modTesting <- modTesting[col1]
+testing <- testing[col2]
+
+dim(modTraining)
+dim(modTesting)
+dim(testing)
+
+```
+
+
+## 4. Building Supervised Learning Model
+
+### 4.1 Predicting with Decision Trees
+
+#### 4.1.1 Model with Recursive Partitioning Trees
+```{r echo = TRUE}
+
+set.seed(13425)
+
+# Use the rpart function to build a classification tree model:
+modFit1 <- rpart(classe~., data = modTraining, method = "class")
+
+# Retrieve the node detail of the classification tree:
+modFit1
+
+# Use the printcp function to examine the Cost Complexity Parameter:
+printcp(modFit1)
+
+plotcp(modFit1)
+
+#summary(modFit1)
+
+# Use the fancyRpartPlot function and the text function to plot the classification tree:
+fancyRpartPlot(modFit1)
+
+par(xpd = TRUE)
+plot(modFit1, uniform= TRUE, branch=1, margin = 0.05)
+text(modFit1, all = TRUE, use.n = FALSE)
+
+
+# Use the predict function to generate a predicted label of the testing data
+predM1 <- predict(modFit1, modTesting, type = "class")
+
+# Use the table function to generate a classification table for the testing data:
+table(modTesting$classe, predM1)
+
+# Use the confusionMatrix function from the caret package for more predicted information:
+conMat <- confusionMatrix(predM1, modTesting$classe)
+conMat
+
+```
+
+So far, we find the the first recursive partitioning tree accuracy is 0.7191, which is still quite low comparing to our benchmark accuracy of over 0.99. Since the recursive partitioning tree is prone to bias and over-fitting. Let's try to use cost complexity pruning method to prune the classification tree.
+
+```{r echo= TRUE}
+# Find the minimum cross-validation error of the classification tree mode:
+min(modFit1$cptable[, "xerror"])
+
+# Locate the record with the minimum cross-validation errors:
+which.min(modFit1$cptable[, "xerror"])
+
+# Get the cost complexity parameter of the record with the minimum cross validation errors:
+modFit1.cp = modFit1$cptable[7, "CP"]
+modFit1.cp
+
+# Prune the tree by setting the cp parameter to the CP value of the record with miminum cross validation errors:
+prune.tree = prune(modFit1, cp = modFit1.cp)
+
+# Plot the pruned tree
+par(xpd = TRUE)
+plot(prune.tree, uniform= TRUE, branch=1, margin = 0.05)
+text(prune.tree, all = TRUE, use.n = FALSE)
+
+# Generate a classification table based on the  pruned classification tree model:
+
+predM1_Prune = predict(prune.tree, modTesting, type = "class")
+
+# check result
+table(modTesting$classe, predM1_Prune)
+
+conMat_P <- confusionMatrix(table(predM1_Prune, modTesting$classe))
+conMat_P
+
+
+plot(conMat_P$table, col = conMat_P$byClass, 
+     main = paste("Pruned Decision Tree Confusion Matrix: Accuracy =", 
+                  round(conMat_P$overall['Accuracy'], 4)))
+```
+
+Pruning the tree with less nodes did not increase the accuracy, in contradotory, it performs with a lower accuracy 0.6383. This model still not perform that good as we expected.
+
+#### 4.1.2 Model with Cross Validation
+```{r echo= TRUE}
+set.seed(13425)
+# setting k-fold cross validation, set k = 5
+control <- trainControl(method = "cv", number = 5)
+
+modFit2 <- train(classe ~., data = modTraining, method = "rpart", trControl = control)
+predM2 <- predict(modFit2, modTesting)
+conf_rpart <- confusionMatrix(modTesting$classe, predM2)
+conf_rpart
+plot(modFit2)
+
+plot(conf_rpart$table, col = conf_rpart$byClass, 
+     main = paste("Decision Tree Confusion Matrix with cross-validation: Accuracy =", 
+                  round(conf_rpart$overall['Accuracy'], 4)))
+
+```
+
+### 4.2 Predicting with Random Forest
+
+#### 4.2.1 Model without cross validation
+
+```{r echo=TRUE}
+set.seed(13425)
+modFit3 <- randomForest(classe ~., data = modTraining)
+predM3 <- predict(modFit3, modTesting, type = "class")
+conf_rf <- confusionMatrix(predM3, modTesting$classe)
+conf_rf
+
+plot(modFit3)
+plot(conf_rf$table, col = conf_rf$byClass, 
+     main = paste("Random Forest Confusion Matrix: Accuracy =", 
+                  round(conf_rf$overall['Accuracy'], 4)))
+```
+
+#### 4.2.2 Model with cross validation
+
+```{r echo=TRUE}
+#set.seed(13425)
+
+#system.time(modFit4 <- train(classe ~., data = modTraining, method = "rf", trControl = control))
+
+#print(modFit4, digits = 4)
+
+#predM4 <- predict(modFit4, modTesting)
+#conf_xrf <- confusionMatrix(predM4, modTesting$classe)
+#conf_xrf
+
+#plot(modFit4)
+#plot(conf_xrf$table, col = conf_xrf$byClass, 
+#     main = paste("Random Froest Confusion Matrix with CV: Accuracy =", 
+#                  round(conf_xrf$overall['Accuracy'], 4)))
+```
+
+Accuracy of the cross validation model is a bit lower that model 3, but taking a long running time for almost 14 mins, which is much longer that the other 3 models.
+
+
+## 4.Prediction on Testing Data
+
+Comparing with four training models in both Classification Tress, Random Forest, we have came out with the best practise. The best practise is the Random Forest model, with accuracy of 0.9943. Hence apply the last model for the final testing data.
+
+```{r echo=TRUE}
+predFMod <- predict(modFit3, testing, type = "class")
+predFMod
+
+# Write the results to a text file for submission
+write_files = function(x){
+    n = length(x)
+    for(i in 1:n){
+        filename = paste0("result/problem_id_",i,".txt")
+        write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+    }
+}
+
+write_files(predFMod)
+```
+
+
+
+
+
+
+
